@@ -1,0 +1,85 @@
+<?php
+
+function team_importer_node_view($node, $view_mode, $langcode){
+}
+
+function team_importer_feeds_before_import(FeedsSource $source){
+}
+
+function team_importer_feeds_presave(FeedsSource $source, $entity, $item){
+  if($entity->feeds_item->id === 'mailhandler_nodes'){
+    $title_arr = explode('|', $entity->title);
+    if(count($title_arr >= 4)){
+
+      $track = $title_arr[0];
+      $nid = $title_arr[1];
+      $title = $title_arr[2];
+      $user = $title_arr[3];
+
+      $state = '';
+      if(count($title_arr == 5)){
+          $state = $title_arr[4];
+      }
+
+      $udi = '';
+      if(count($title_arr == 6)){
+          $udi = $title_arr[5];
+      }
+
+      $new_title = $track . " - " . $nid . " - " . $title;
+      $nid = team_importer_check_existing($new_title);
+
+      if(!empty($nid)){
+        $entity->feeds_item->skip = TRUE;
+
+        $subject = !empty($state) ? $state : $track;
+        team_importer_add_comment($nid, $subject, $entity->body[LANGUAGE_NONE][0]['value']);
+      }
+      else{
+        $entity->title = $new_title;
+      }
+
+    }
+  }
+
+}
+
+function team_importer_check_existing($title){
+  $nid = NULL;
+
+  $row = db_query('SELECT nid FROM node WHERE title = :title', array(':title' => $title))->fetchField();
+  if(!empty($row)) {
+     $nid = $row;
+  }
+  return $nid;
+}
+
+function team_importer_add_comment($nid, $subject, $body){
+
+  $comment = new stdClass();
+
+  $comment = (object) array(
+    'nid' => $nid,
+    'cid' => 0,
+    'pid' => 0,
+    'uid' => 1,
+    'mail' => '',
+    'is_anonymous' => 0,
+    'homepage' => '',
+    'status' => COMMENT_PUBLISHED,
+    'subject' => $subject,
+    'language' => LANGUAGE_NONE,
+    'comment_body' => array(
+      LANGUAGE_NONE => array(
+        0 => array (
+          'value' => $body,
+          'format' => 'filtered_html'
+        )
+      )
+    ),
+  );
+
+  comment_submit($comment);
+  comment_save($comment);
+
+}
