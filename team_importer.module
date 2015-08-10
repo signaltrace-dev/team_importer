@@ -27,7 +27,8 @@ function team_importer_feeds_presave(FeedsSource $source, $entity, $item){
       }
 
       $new_title = $track . " - " . $nid . " - " . $title;
-      $nid = team_importer_check_existing($new_title);
+      $check_title = $track . " - " . $nid;
+      $nid = team_importer_check_existing($check_title);
 
       if(!empty($nid)){
         $entity->feeds_item->skip = TRUE;
@@ -47,7 +48,7 @@ function team_importer_feeds_presave(FeedsSource $source, $entity, $item){
 function team_importer_check_existing($title){
   $nid = NULL;
 
-  $row = db_query('SELECT nid FROM node WHERE title = :title', array(':title' => $title))->fetchField();
+  $row = db_query('SELECT MAX(nid) FROM node WHERE title LIKE :title', array(':title' => db_like($title) . '%'))->fetchField();
   if(!empty($row)) {
      $nid = $row;
   }
@@ -64,6 +65,7 @@ function team_importer_add_comment($nid, $subject, $body){
     'pid' => 0,
     'uid' => 1,
     'mail' => '',
+    'name' => 'TEAM Importer',
     'is_anonymous' => 0,
     'homepage' => '',
     'status' => COMMENT_PUBLISHED,
