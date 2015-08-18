@@ -1,6 +1,8 @@
 <?php
 
 function team_importer_node_view($node, $view_mode, $langcode){
+
+
 }
 
 function team_importer_feeds_before_import(FeedsSource $source){
@@ -9,8 +11,8 @@ function team_importer_feeds_before_import(FeedsSource $source){
 function team_importer_feeds_presave(FeedsSource $source, $entity, $item){
   if($entity->feeds_item->id === 'mailhandler_nodes'){
     $title_arr = explode('|', $entity->title);
-    if(count($title_arr >= 4)){
-
+    // Email updates from the Data Management Portal
+    if(count($title_arr) >= 4){
       $track = $title_arr[0];
       $nid = $title_arr[1];
       $title = $title_arr[2];
@@ -29,20 +31,50 @@ function team_importer_feeds_presave(FeedsSource $source, $entity, $item){
       $new_title = $track . " - " . $nid . " - " . $title;
       $check_title = $track . " - " . $nid;
       $nid = team_importer_check_existing($check_title);
-
       if(!empty($nid)){
         $entity->feeds_item->skip = TRUE;
 
         $subject = !empty($state) ? $state : $track;
-        team_importer_add_comment($nid, $subject, $entity->body[LANGUAGE_NONE][0]['value']);
+        $body =  $entity->body[LANGUAGE_NONE][0]['value'];
+        team_importer_add_comment($nid, $subject, $body);
       }
       else{
         $entity->title = $new_title;
       }
 
     }
+    else{
+      $nid = team_importer_check_for_nid($entity->title);
+      if(!empty($nid)){
+        $entity->feeds_item->skip = TRUE;
+
+        $subject = preg_replace("/\[[0-9]*\]$/", "", $entity->title);
+        $body =  $entity->body[LANGUAGE_NONE][0]['value'];
+
+        team_importer_add_comment($nid, $subject, $body, TRUE);
+      }
+    }
   }
 
+}
+
+function team_importer_check_for_nid($title){
+  $nid = NULL;
+
+  $match_array = array();
+  $title_matches = preg_match("/^.+?\[[0-9]*\]$/", $title, $match_array);
+  if($title_matches > 0){
+    $title_array = array();
+    if(preg_match("/\[[0-9]*\]$/", $match_array[0], $title_array)){
+      $nid = !empty($title_array[0]) ? $title_array[0] : NULL;
+      if(!empty($nid)){
+        $nid = str_replace('[', '', $nid);
+        $nid = str_replace(']', '', $nid);
+      }
+    }
+  }
+
+  return $nid;
 }
 
 function team_importer_check_existing($title){
@@ -55,7 +87,7 @@ function team_importer_check_existing($title){
   return $nid;
 }
 
-function team_importer_add_comment($nid, $subject, $body){
+function team_importer_add_comment($nid, $subject, $body, $no_email = FALSE){
 
   $comment = new stdClass();
 
@@ -80,6 +112,24 @@ function team_importer_add_comment($nid, $subject, $body){
       )
     ),
   );
+
+  $comment->field_internal_comment = array(
+    LANGUAGE_NONE => array(
+      0 => array(
+        'value' => 0,
+      ),
+    ),
+  );
+
+  if(!empty($no_email)){
+    $comment->field_no_email = array(
+      LANGUAGE_NONE => array(
+        0 => array(
+          'value' => 1,
+        ),
+      ),
+    );
+  }
 
   comment_submit($comment);
   comment_save($comment);
