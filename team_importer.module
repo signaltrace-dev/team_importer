@@ -10,8 +10,24 @@ function team_importer_feeds_before_import(FeedsSource $source){
 
 function team_importer_feeds_presave(FeedsSource $source, $entity, $item){
   if($entity->feeds_item->id === 'mailhandler_nodes'){
+    $is_fwd = FALSE;
+
+    $body =  $entity->body[LANGUAGE_NONE][0]['value'];
+    // Check for [orgmember:email@email.com] in body - attribute to user if exists
+    $uid = team_importer_check_for_org_member($body);
+    $entity->body[LANGUAGE_NONE][0]['value'] = !empty($uid) ? preg_replace("/\[orgmember\:.*\]/", "", $body) : $body;
+    $entity->uid = !empty($uid) ? $uid : $entity->uid;
+    $matches = array();
+    if(preg_match("/(\ )*(Fwd:)(\ )*/", $entity->title, $matches) > 0){
+      $is_fwd = TRUE;
+      $entity->body[LANGUAGE_NONE][0]['value'] = !empty($item['body_html']) ? preg_replace("/\[(<a href=\"mailto:)?orgmember(\:|%3A)?.*(<\/a>)?\]/", "", $item['body_html']) : $item['body_html'];
+      $body = $entity->body[LANGUAGE_NONE][0]['value'];
+    }
+
+    // Remove Fwd: and Re: from titles
+    $entity->title = preg_replace("/(\ )*(Fwd:|Re:)(\ )*/", "", $entity->title);
+    // Handle email updates from the Data Management Portal
     $title_arr = explode('|', $entity->title);
-    // Email updates from the Data Management Portal
     if(count($title_arr) >= 4){
       $track = $title_arr[0];
       $nid = $title_arr[1];
@@ -35,27 +51,56 @@ function team_importer_feeds_presave(FeedsSource $source, $entity, $item){
         $entity->feeds_item->skip = TRUE;
 
         $subject = !empty($state) ? $state : $track;
-        $body =  $entity->body[LANGUAGE_NONE][0]['value'];
-        team_importer_add_comment($nid, $subject, $body);
+        team_importer_add_comment($nid, $subject, $body, NULL, $is_fwd, $entity->uid);
       }
       else{
         $entity->title = $new_title;
       }
 
     }
+
+    // All other email types
     else{
+      // Check for [nid] in title - add as comment if ticket exists
       $nid = team_importer_check_for_nid($entity->title);
       if(!empty($nid)){
         $entity->feeds_item->skip = TRUE;
-
         $subject = preg_replace("/\[[0-9]*\]$/", "", $entity->title);
-        $body =  $entity->body[LANGUAGE_NONE][0]['value'];
-
-        team_importer_add_comment($nid, $subject, $body, TRUE);
+        team_importer_add_comment($nid, $subject, $body, TRUE, $is_fwd, $entity->uid);
       }
+
+
     }
   }
 
+}
+
+function team_importer_check_for_org_member($body){
+  $uid = NULL;
+  $match_array = array();
+  $blah = "/\[(<a href=\"mailto:)?orgmember(\:|%3A)?.*(<\/a>)?\]/";
+  //$org_matches = preg_match("/\[orgmember\:.*\]/", $body, $match_array);
+  $org_matches = preg_match("/\[(<a href=\"mailto:)?orgmember(\:|%3A)?.*(<\/a>)?\]/", $body, $match_array);
+  if($org_matches > 0){
+      $org_code = $match_array[0];
+      if(!empty($org_code)){
+        $org_code = str_replace('[', '', $org_code);
+        $org_code = str_replace(']', '', $org_code);
+        $org_arr = explode(':', $org_code);
+        if(count($org_arr) > 1){
+          if($org_arr[0] == 'orgmember' && !empty($org_arr[1])){
+            $email = $org_arr[1];
+            $user = user_load_by_mail($email);
+            if(!empty($user) && $user->uid > 0){
+              $uid = $user->uid;
+            }
+          }
+        }
+      }
+
+  }
+
+  return $uid;
 }
 
 function team_importer_check_for_nid($title){
@@ -87,7 +132,36 @@ function team_importer_check_existing($title){
   return $nid;
 }
 
-function team_importer_add_comment($nid, $subject, $body, $no_email = FALSE){
+function team_importer_associated_account($item, $body, $is_fwd){
+  $uid = NULL;
+  if($is_fwd){
+
+    $matches = array();
+    if(preg_match("/^From:(\ )*[^<]*\ *<[^>]*>/", $body, $matches) > 0){
+      if(preg_match("/<[^>]*>/", $matches[0], $email_array)){
+        $email = !empty($email_array[0]) ? $email_array[0] : NULL;
+        if(!empty($email)){
+          $email = str_replace('<', '', $nid);
+          $email = str_replace('>', '', $nid);
+
+
+        }
+      }
+    }
+  }
+  else{
+    $email = !empty($item['from-address'][0]) ? $item['from-address'][0] : '';
+  }
+
+  $user = user_load_by_mail($email);
+  if(!empty($user) && $user->uid > 0){
+    $uid = $user->uid;
+  }
+
+  return $uid;
+}
+
+function team_importer_add_comment($nid, $subject, $body, $no_email = FALSE, $is_fwd = FALSE, $uid){
 
   $comment = new stdClass();
 
@@ -95,7 +169,7 @@ function team_importer_add_comment($nid, $subject, $body, $no_email = FALSE){
     'nid' => $nid,
     'cid' => 0,
     'pid' => 0,
-    'uid' => 1,
+    'uid' => $uid,
     'mail' => '',
     'name' => 'TEAM Importer',
     'is_anonymous' => 0,
@@ -107,7 +181,7 @@ function team_importer_add_comment($nid, $subject, $body, $no_email = FALSE){
       LANGUAGE_NONE => array(
         0 => array (
           'value' => $body,
-          'format' => 'filtered_html'
+          'format' => 'full_html'
         )
       )
     ),
