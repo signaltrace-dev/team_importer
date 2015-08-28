@@ -8,20 +8,29 @@ function team_importer_node_view($node, $view_mode, $langcode){
 function team_importer_feeds_before_import(FeedsSource $source){
 }
 
+function team_importer_feeds_after_parse(FeedsSource $source, FeedsParserResult $result){
+}
+
 function team_importer_feeds_presave(FeedsSource $source, $entity, $item){
   if($entity->feeds_item->id === 'mailhandler_nodes'){
-    $is_fwd = FALSE;
 
+    $is_fwd = FALSE;
     $body =  $entity->body[LANGUAGE_NONE][0]['value'];
     // Check for [orgmember:email@email.com] in body - attribute to user if exists
     $uid = team_importer_check_for_org_member($body);
     $entity->body[LANGUAGE_NONE][0]['value'] = !empty($uid) ? preg_replace("/\[orgmember\:.*\]/", "", $body) : $body;
+    $body =  $entity->body[LANGUAGE_NONE][0]['value'];
+
     $entity->uid = !empty($uid) ? $uid : $entity->uid;
     $matches = array();
     if(preg_match("/(\ )*(Fwd:)(\ )*/", $entity->title, $matches) > 0){
       $is_fwd = TRUE;
       $entity->body[LANGUAGE_NONE][0]['value'] = !empty($item['body_html']) ? preg_replace("/\[(<a href=\"mailto:)?orgmember(\:|%3A)?.*(<\/a>)?\]/", "", $item['body_html']) : $item['body_html'];
       $body = $entity->body[LANGUAGE_NONE][0]['value'];
+    }
+
+    if(mb_check_encoding($entity->body[LANGUAGE_NONE][0]['value'], 'UTF-8') === false){
+      $entity->body[LANGUAGE_NONE][0]['value'] = utf8_encode($entity->body[LANGUAGE_NONE][0]['value']);
     }
 
     // Remove Fwd: and Re: from titles
@@ -61,8 +70,10 @@ function team_importer_feeds_presave(FeedsSource $source, $entity, $item){
 
     // All other email types
     else{
+
       // Check for [nid] in title - add as comment if ticket exists
       $nid = team_importer_check_for_nid($entity->title);
+
       if(!empty($nid)){
         $entity->feeds_item->skip = TRUE;
         $subject = preg_replace("/\[[0-9]*\]$/", "", $entity->title);
@@ -72,7 +83,6 @@ function team_importer_feeds_presave(FeedsSource $source, $entity, $item){
 
     }
   }
-
 }
 
 function team_importer_check_for_org_member($body){
@@ -143,8 +153,6 @@ function team_importer_associated_account($item, $body, $is_fwd){
         if(!empty($email)){
           $email = str_replace('<', '', $nid);
           $email = str_replace('>', '', $nid);
-
-
         }
       }
     }
