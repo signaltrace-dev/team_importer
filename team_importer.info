@@ -2,4 +2,5 @@ name = TEAM Importer
 description = Custom functionality for handling Feeds import emails.
 dependencies[] = feeds
 core = 7.x
-project = Website Worker
+version = 7.x-1.0
+package = TEAM Portal
